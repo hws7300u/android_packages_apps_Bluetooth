@@ -162,6 +162,40 @@ public class BluetoothOppLauncherActivity extends Activity {
                     return;
                 }
             }
+
+            if (!isBluetoothAllowed()) {
+                Intent in = new Intent(this, BluetoothOppBtErrorActivity.class);
+                in.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                in.putExtra("title", this.getString(R.string.airplane_error_title));
+                in.putExtra("content", this.getString(R.string.airplane_error_msg));
+                this.startActivity(in);
+
+                finish();
+                return;
+            }
+
+            // TODO: In the future, we may send intent to DevicePickerActivity
+            // directly,
+            // and let DevicePickerActivity to handle Bluetooth Enable.
+            if (!BluetoothOppManager.getInstance(this).isEnabled()) {
+                if (V) Log.v(TAG, "Prepare Enable BT!! ");
+                Intent in = new Intent(this, BluetoothOppBtEnableActivity.class);
+                in.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                this.startActivity(in);
+            } else {
+                if (V) Log.v(TAG, "BT already enabled!! ");
+                Intent in1 = new Intent(BluetoothDevicePicker.ACTION_LAUNCH);
+                in1.setFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+                in1.putExtra(BluetoothDevicePicker.EXTRA_NEED_AUTH, false);
+                in1.putExtra(BluetoothDevicePicker.EXTRA_FILTER_TYPE,
+                        BluetoothDevicePicker.FILTER_TYPE_TRANSFER);
+                in1.putExtra(BluetoothDevicePicker.EXTRA_LAUNCH_PACKAGE,
+                        Constants.THIS_PACKAGE_NAME);
+                in1.putExtra(BluetoothDevicePicker.EXTRA_LAUNCH_CLASS,
+                        BluetoothOppReceiver.class.getName());
+                if (V) {Log.d(TAG,"Launching " +BluetoothDevicePicker.ACTION_LAUNCH );}
+                this.startActivity(in1);
+            }
         } else if (action.equals(Constants.ACTION_OPEN)) {
             Uri uri = getIntent().getData();
             if (V) Log.v(TAG, "Get ACTION_OPEN intent: Uri = " + uri);

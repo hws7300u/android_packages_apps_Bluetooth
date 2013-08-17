@@ -60,7 +60,6 @@ import com.android.bluetooth.Utils;
 
 
 import com.android.bluetooth.R;
-import com.android.bluetooth.btservice.AdapterService;
 
 import java.io.IOException;
 
@@ -172,7 +171,7 @@ public class BluetoothPbapService extends Service {
 
     private int mStartId = -1;
 
-    //private IBluetooth mBluetoothService;
+    private IBluetooth mBluetoothService;
 
     private boolean isWaitingAuthorization = false;
 
@@ -183,6 +182,11 @@ public class BluetoothPbapService extends Service {
 
     public BluetoothPbapService() {
         mState = BluetoothPbap.STATE_DISCONNECTED;
+        IBinder b = ServiceManager.getService(BluetoothAdapter.BLUETOOTH_SERVICE);
+        if (b == null) {
+            throw new RuntimeException("Bluetooth service not available");
+        }
+        mBluetoothService = IBluetooth.Stub.asInterface(b);
     }
 
     @Override
@@ -297,6 +301,10 @@ public class BluetoothPbapService extends Service {
 
         super.onDestroy();
         setState(BluetoothPbap.STATE_DISCONNECTED, BluetoothPbap.RESULT_CANCELED);
+        if (mWakeLock != null) {
+            mWakeLock.release();
+            mWakeLock = null;
+        }
         closeService();
         if(mSessionStatusHandler != null) {
             mSessionStatusHandler.removeCallbacksAndMessages(null);
@@ -322,12 +330,11 @@ public class BluetoothPbapService extends Service {
     private final boolean initSocket() {
         if (VERBOSE) Log.v(TAG, "Pbap Service initSocket");
 
-        boolean initSocketOK = false;
+        boolean initSocketOK = true;
         final int CREATE_RETRY_TIME = 10;
 
         // It's possible that create will fail in some cases. retry for 10 times
         for (int i = 0; i < CREATE_RETRY_TIME && !mInterrupted; i++) {
-            initSocketOK = true;
             try {
                 // It is mandatory for PSE to support initiation of bonding and
                 // encryption.
@@ -347,22 +354,18 @@ public class BluetoothPbapService extends Service {
                     Log.w(TAG, "initServerSocket failed as BT is (being) turned off");
                     break;
                 }
-                try {
-                    if (VERBOSE) Log.v(TAG, "wait 300 ms");
-                    Thread.sleep(300);
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "socketAcceptThread thread was interrupted (3)");
-                    break;
+                synchronized (this) {
+                    try {
+                        if (VERBOSE) Log.v(TAG, "wait 300 ms");
+                        Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                        Log.e(TAG, "socketAcceptThread thread was interrupted (3)");
+                        mInterrupted = true;
+                    }
                 }
             } else {
                 break;
             }
-        }
-
-        if (mInterrupted) {
-            initSocketOK = false;
-            // close server socket to avoid resource leakage
-            closeServerSocket();
         }
 
         if (initSocketOK) {
@@ -374,26 +377,21 @@ public class BluetoothPbapService extends Service {
         return initSocketOK;
     }
 
-    private final synchronized void closeServerSocket() {
-        // exit SocketAcceptThread early
-        if (mServerSocket != null) {
-            try {
-                // this will cause mServerSocket.accept() return early with IOException
+    private final void closeSocket(boolean server, boolean accept) throws IOException {
+        if (server == true) {
+            // Stop the possible trying to init serverSocket
+            mInterrupted = true;
+
+            if (mServerSocket != null) {
                 mServerSocket.close();
                 mServerSocket = null;
-            } catch (IOException ex) {
-                Log.e(TAG, "Close Server Socket error: " + ex);
             }
         }
-    }
 
-    private final synchronized void closeConnectionSocket() {
-        if (mConnSocket != null) {
-            try {
+        if (accept == true) {
+            if (mConnSocket != null) {
                 mConnSocket.close();
                 mConnSocket = null;
-            } catch (IOException e) {
-                Log.e(TAG, "Close Connection Socket error: " + e.toString());
             }
         }
     }
@@ -401,9 +399,11 @@ public class BluetoothPbapService extends Service {
     private final void closeService() {
         if (VERBOSE) Log.v(TAG, "Pbap Service closeService in");
 
-        // exit initSocket early
-        mInterrupted = true;
-        closeServerSocket();
+        try {
+            closeSocket(true, true);
+        } catch (IOException ex) {
+            Log.e(TAG, "CloseSocket error: " + ex);
+        }
 
         if (mAcceptThread != null) {
             try {
@@ -414,18 +414,10 @@ public class BluetoothPbapService extends Service {
                 Log.w(TAG, "mAcceptThread close error" + ex);
             }
         }
-
-        if (mWakeLock != null) {
-            mWakeLock.release();
-            mWakeLock = null;
-        }
-
         if (mServerSession != null) {
             mServerSession.close();
             mServerSession = null;
         }
-
-        closeConnectionSocket();
 
         mHasStarted = false;
         if (mStartId != -1 && stopSelfResult(mStartId)) {
@@ -485,8 +477,12 @@ public class BluetoothPbapService extends Service {
 
         mAcceptThread = null;
 
-        closeConnectionSocket();
-
+        try {
+            closeSocket(false, true);
+	    mConnSocket = null;
+        } catch (IOException e) {
+            Log.e(TAG, "closeSocket error: " + e.toString());
+        }
         // Last obex transaction is finished, we start to listen for incoming
         // connection again
         if (mAdapter.isEnabled()) {
@@ -524,9 +520,9 @@ public class BluetoothPbapService extends Service {
 
         @Override
         public void run() {
-            BluetoothServerSocket serverSocket;
             if (mServerSocket == null) {
                 if (!initSocket()) {
+                    closeService();
                     return;
                 }
             }
@@ -534,21 +530,10 @@ public class BluetoothPbapService extends Service {
             while (!stopped) {
                 try {
                     if (VERBOSE) Log.v(TAG, "Accepting socket connection...");
-                    serverSocket = mServerSocket;
-                    if (serverSocket == null) {
-                        Log.w(TAG, "mServerSocket is null");
-                        break;
-                    }
-                    mConnSocket = serverSocket.accept();
+                    mConnSocket = mServerSocket.accept();
                     if (VERBOSE) Log.v(TAG, "Accepted socket connection...");
 
-                    synchronized (BluetoothPbapService.this) {
-                        if (mConnSocket == null) {
-                            Log.w(TAG, "mConnSocket is null");
-                            break;
-                        }
-                        mRemoteDevice = mConnSocket.getRemoteDevice();
-                    }
+                    mRemoteDevice = mConnSocket.getRemoteDevice();
                     if (mRemoteDevice == null) {
                         Log.i(TAG, "getRemoteDevice() = null");
                         break;
@@ -672,10 +657,11 @@ public class BluetoothPbapService extends Service {
             intent.putExtra(BluetoothPbap.PBAP_STATE, mState);
             intent.putExtra(BluetoothDevice.EXTRA_DEVICE, mRemoteDevice);
             sendBroadcast(intent, BLUETOOTH_PERM);
-            AdapterService s = AdapterService.getAdapterService();
-            if (s != null) {
-                s.onProfileConnectionStateChanged(mRemoteDevice, BluetoothProfile.PBAP,
-                        mState, prevState);
+            try {
+                mBluetoothService.sendConnectionStateChange(mRemoteDevice, BluetoothProfile.PBAP,
+                                                            mState, prevState);
+            } catch (RemoteException e) {
+                Log.e(TAG, "RemoteException in sendConnectionStateChange");
             }
         }
     }
@@ -802,9 +788,12 @@ public class BluetoothPbapService extends Service {
                             mServerSession.close();
                             mServerSession = null;
                         }
-
-                        closeConnectionSocket();
-
+                        try {
+                            closeSocket(false, true);
+                            mConnSocket = null;
+                        } catch (IOException ex) {
+                            Log.e(TAG, "Caught the error: " + ex);
+                        }
                         setState(BluetoothPbap.STATE_DISCONNECTED, BluetoothPbap.RESULT_CANCELED);
                         break;
                     default:

@@ -943,55 +943,50 @@ int register_com_android_bluetooth_btservice_AdapterService(JNIEnv* env)
  */
 jint JNI_OnLoad(JavaVM *jvm, void *reserved)
 {
-    JNIEnv *e;
-    int status;
+   JNIEnv *e;
+   int status;
 
-    ALOGV("Bluetooth Adapter Service : loading JNI\n");
+   ALOGV("Bluetooth Adapter Service : loading JNI\n");
 
-    // Check JNI version
-    if (jvm->GetEnv((void **)&e, JNI_VERSION_1_6)) {
-        ALOGE("JNI version mismatch error");
-        return JNI_ERR;
-    }
+   // Check JNI version
+   if(jvm->GetEnv((void **)&e, JNI_VERSION_1_6)) {
+       ALOGE("JNI version mismatch error");
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_btservice_AdapterService(e)) < 0) {
-        ALOGE("jni adapter service registration failure, status: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_btservice_AdapterService(e)) < 0) {
+       ALOGE("jni adapter service registration failure, status: %d", status);
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_hfp(e)) < 0) {
-        ALOGE("jni hfp registration failure, status: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_hfp(e)) < 0) {
+       ALOGE("jni hfp registration failure, status: %d", status);
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_a2dp(e)) < 0) {
-        ALOGE("jni a2dp registration failure: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_a2dp(e)) < 0) {
+       ALOGE("jni a2dp registration failure: %d", status);
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_avrcp(e)) < 0) {
-        ALOGE("jni avrcp registration failure: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_hid(e)) < 0) {
+       ALOGE("jni hid registration failure: %d", status);
+       return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_hid(e)) < 0) {
-        ALOGE("jni hid registration failure: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_hdp(e)) < 0) {
+       ALOGE("jni hdp registration failure: %d", status);
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_hdp(e)) < 0) {
-        ALOGE("jni hdp registration failure: %d", status);
-        return JNI_ERR;
-    }
+   if ((status = android::register_com_android_bluetooth_pan(e)) < 0) {
+       ALOGE("jni pan registration failure: %d", status);
+      return JNI_ERR;
+   }
 
-    if ((status = android::register_com_android_bluetooth_pan(e)) < 0) {
-        ALOGE("jni pan registration failure: %d", status);
-        return JNI_ERR;
-    }
-
-    if ((status = android::register_com_android_bluetooth_gatt(e)) < 0) {
-        ALOGE("jni gatt registration failure: %d", status);
-        return JNI_ERR;
-    }
-    return JNI_VERSION_1_6;
+   if ((status = android::register_com_android_bluetooth_gatt(e)) < 0) {
+       ALOGE("jni gatt registration failure: %d", status);
+      return JNI_ERR;
+   }
+   return JNI_VERSION_1_6;
 }
